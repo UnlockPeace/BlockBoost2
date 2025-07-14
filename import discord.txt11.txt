@@ -1,0 +1,115 @@
+import discord
+import random
+import asyncio
+from datetime import datetime
+import os
+import json
+
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
+
+TOKEN = "YOUR_BOT_TOKEN_HERE"
+QUIZ_CHANNEL_ID = 123456789012345678  # Replace with your real quiz channel ID
+XP_LOG_CHANNEL_ID = 123456789012345678  # Replace with your real XP log channel ID
+
+current_answer = None
+question_active = False
+last_question = ""
+
+class QuizDatabase:
+    def __init__(self):
+        self.db_file = "xp_data.json"
+        if not os.path.exists(self.db_file):
+            with open(self.db_file, 'w') as f:
+                json.dump([], f)
+
+    def add_xp(self, user_id, username, xp, question, timestamp):
+        with open(self.db_file, 'r') as f:
+            data = json.load(f)
+
+        data.append({
+            "user_id": user_id,
+            "username": username,
+            "xp": xp,
+            "question": question,
+            "timestamp": timestamp.isoformat()
+        })
+
+        with open(self.db_file, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    def close(self):
+        pass
+
+def generate_question():
+    a = random.randint(1, 80)
+    b = random.randint(1, 80)
+    op = random.choice(["+", "-"])
+    if op == "+":
+        return f"What is {a} + {b}?", a + b
+    else:
+        return f"What is {a} - {b}?", a - b
+
+@client.event
+async def on_ready():
+    print(f"✅ Logged in as {client.user}")
+    asyncio.create_task(quiz_loop())
+
+async def quiz_loop():
+    global current_answer, question_active, last_question
+    await client.wait_until_ready()
+    channel = client.get_channel(QUIZ_CHANNEL_ID)
+
+    while True:
+        question, answer = generate_question()
+        last_question = question
+        current_answer = answer
+        question_active = True
+
+        await channel.send(f"🧠 **BlockBoost MathQUIZ Time!**\n**{question}**\n🏆 **Challenge**\nFirst correct answer wins!\n⏰ **Time**\nPosted at {datetime.now().strftime('%H:%M:%S')}")
+        await asyncio.sleep(600)
+        question_active = False
+        current_answer = None
+
+@client.event
+async def on_message(message):
+    global current_answer, question_active
+
+    if message.author.bot:
+        return
+
+    if question_active and message.channel.id == QUIZ_CHANNEL_ID:
+        print(f"🔍 Checking message: '{message.content}' from {message.author.name}")
+        try:
+            if int(message.content.strip()) == current_answer:
+                xp_earned = random.randint(25, 80)
+                await message.channel.send(
+                    f"✅ Correct, {message.author.mention}! You earned **{xp_earned} XP** 🎉"
+                )
+
+                log_channel = client.get_channel(XP_LOG_CHANNEL_ID)
+                if log_channel:
+                    await log_channel.send(
+                        f"📘 {message.author.name} answered correctly and earned **{xp_earned} XP**!\n"
+                        f"Question: `{last_question}`"
+                    )
+
+                db = QuizDatabase()
+                db.add_xp(
+                    user_id=message.author.id,
+                    username=message.author.name,
+                    xp=xp_earned,
+                    question=last_question,
+                    timestamp=datetime.now()
+                )
+                db.close()
+
+                question_active = False
+                current_answer = None
+        except ValueError:
+            print(f"⚠️ Invalid answer format from {message.author.name}: {message.content}")
+            pass
+
+if __name__ == "__main__":
+    client.run(TOKEN)
